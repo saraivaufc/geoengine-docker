@@ -1,0 +1,115 @@
+version: "3.7"
+services:
+  postgis-db:
+    build:
+      context: postgis
+      dockerfile: Dockerfile
+    image: postgis-db:latest
+    container_name: postgis-db-container
+    restart: always
+    volumes:
+      - postgis-db:/var/lib/postgresql/data
+    environment:
+      - "POSTGRES_DB=geoengine"
+      - "POSTGRES_USER=admin"
+      - "POSTGRES_PASSWORD=@dmin123"
+    networks:
+      - default
+
+  redis-db:
+    image: redis:alpine3.10
+    container_name: redis-db-container
+    volumes:
+      - redis-db:/data
+    networks:
+      - default
+
+  mongo-db:
+    image: mongo:3.6.15-xenial
+    container_name: mongo-db-container
+    volumes:
+      - mongo-db:/data/db
+    networks:
+      - default
+
+  geoengine-backend:
+    depends_on:
+      - postgis-db
+      - redis-db
+      - mongo-db
+    build:
+      context: geoengine-backend
+      dockerfile: Dockerfile
+      args:
+        ENTRY_POINT: docker-entrypoint.sh
+        SSH_PRIVATE_KEY: docker_key
+        BRANCH: master
+    image: geoengine-backend:latest
+    container_name: geoengine-backend-container
+    restart: always
+    ports:
+      - "7001:80"
+    volumes:
+      - geoengine-media:/var/www/geoengine-backend/media
+      - ./data:/data
+    environment:
+      - "GEOENGINE_DB_ENGINE=django.contrib.gis.db.backends.postgis"
+      - "GEOENGINE_DB_NAME=geoengine"
+      - "GEOENGINE_DB_HOST=postgis-db"
+      - "GEOENGINE_DB_PORT=5432"
+      - "GEOENGINE_DB_USER=admin"
+      - "GEOENGINE_DB_PASSWORD=@dmin123"
+      - "GEOENGINE_DEBUG=1"
+      - "CELERY_BROKER_URL=redis://redis-db:6379/0"
+      - "GEE_REFRESH_TOKEN=1/iE_0p5_LipIMgquPoPcZ31HFa3oEfF-UtZkJOPRUQ0w"
+      - "ENGINE_DB_HOST=mongo-db"
+      - "ENGINE_DB_NAME=engine"
+    networks:
+      - default
+
+  geoengine-frontend:
+    depends_on:
+      - postgis-db
+      - geoengine-backend
+    build:
+      context: geoengine-frontend
+      dockerfile: Dockerfile
+      args:
+        ENTRY_POINT: docker-entrypoint.sh
+        BRANCH: master
+        SSH_PRIVATE_KEY: docker_key
+        GEOENGINE_BACKEND_HOST: http://localhost:8000
+    image: geoengine-frontend:latest
+    container_name: geoengine-frontend-container
+    restart: always
+    ports:
+      - "8004:80"
+    networks:
+      - default
+
+  nginx-proxy:
+    depends_on:
+      - geoengine-backend
+      - geoengine-frontend
+    build:
+      context: nginx-proxy
+      dockerfile: Dockerfile
+    environment:
+      - "DOMAIN=localhost"
+      - "SSL=false"
+    image: nginx-proxy:latest
+    restart: always
+    ports:
+      - "8000:80"
+    container_name: nginx-proxy-container
+    networks:
+      - default
+
+volumes:
+  redis-db:
+  mongo-db:
+  postgis-db:
+  geoengine-media:
+
+networks:
+  default:
